@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>takepanda</title>
+    <style>
+      body {
+        margin: 0;
+        background: rgb(255, 255, 255);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+      canvas {
+        background: rgb(170, 255, 170);
+        border: 2px solid #333;
+      }
+      #retryButton {
+        display: none;
+        position: absolute;
+        top: 60%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 10px 20px;
+        font-size: 18px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <button id="retryButton">リトライ</button>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const sounds = {
+        bgm: new Audio("sounds/take.mp3"),
+        attack: new Audio("sounds/attack.mp3"),
+      };
+
+      const images = {};
+      const imageSources = {
+        pan: "images/character/pan.png",
+        panda: "images/character/panda.png",
+        panLeft: "images/character/pan(h).png",
+        panRight: "images/character/pan(m).png",
+        banLeft: "images/character/ban(h).png",
+        banRight: "images/character/ban(m).png",
+        trunk: "images/ground/take.png",
+        branchLeft: "images/ground/happa(h).png",
+        branchRight: "images/ground/happa(m).png",
+      };
+
+      const playerImageProperties = {
+        pan: { width: 75, height: 75, x: 130, y: 510 },
+        panda: { width: 75, height: 75, x: 195, y: 510 },
+        panLeft: { width: 58, height: 76, x: 130, y: 510 },
+        panRight: { width: 58, height: 76, x: 210, y: 510 },
+      };
+
+      const attackEffectProperties = {
+        banLeft: { width: 40, height: 40, x: 180, y: 500 },
+        banRight: { width: 33, height: 33, x: 180, y: 510 },
+      };
+
+      let score = 0;
+      let gameOver = false;
+      let isAnimating = false;
+      let playerSide = "left";
+      let timer = 30;
+      let gameStarted = false;
+      const tree = [];
+      let lastBranch = "none";
+      let pandaVisible = true;
+      let startTime = null;
+
+      let showAttackEffect = false;
+      let attackEffectSide = "left";
+      let attackEffectTimer = 0;
+
+      const retryButton = document.getElementById("retryButton");
+
+      let loaded = 0;
+      const totalImages = Object.keys(imageSources).length;
+      for (let key in imageSources) {
+        images[key] = new Image();
+        images[key].src = imageSources[key];
+        images[key].onload = () => {
+          loaded++;
+          if (loaded === totalImages) startGame();
+        };
+      }
+
+      function generateBranch() {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const branchProbability = Math.min(0.2 + elapsed * 0.02, 0.7);
+        let branch;
+        do {
+          const rand = Math.random();
+          if (rand < branchProbability / 2) branch = "left";
+          else if (rand < branchProbability) branch = "right";
+          else branch = "none";
+        } while (
+          (lastBranch === "left" && branch === "right") ||
+          (lastBranch === "right" && branch === "left")
+        );
+        lastBranch = branch;
+        return branch;
+      }
+
+      function initTree() {
+        tree.length = 0;
+        lastBranch = "none";
+        for (let i = 0; i < 6; i++) {
+          let branchType = generateBranch();
+          if (i === 0) branchType = "none";
+          tree.push({ branch: branchType, yOffset: i * 80 });
+        }
+      }
+
+      function drawTree() {
+        for (let i = 0; i < tree.length; i++) {
+          const y = 500 - tree[i].yOffset;
+          ctx.drawImage(images.trunk, 180, y, 40, 87);
+          if (tree[i].branch === "left") {
+            ctx.drawImage(images.branchLeft, 98, y, 90, 70);
+          } else if (tree[i].branch === "right") {
+            ctx.drawImage(images.branchRight, 212, y, 90, 70);
+          }
+        }
+      }
+
+      function drawPlayer() {
+        if (!pandaVisible) return;
+        let imgKey;
+        if (!gameStarted) {
+          imgKey = playerSide === "left" ? "pan" : "panda";
+        } else {
+          imgKey = playerSide === "left" ? "panLeft" : "panRight";
+        }
+        const img = images[imgKey];
+        const props = playerImageProperties[imgKey];
+        ctx.drawImage(img, props.x, props.y, props.width, props.height);
+      }
+
+      function drawAttackEffect() {
+        if (showAttackEffect && attackEffectTimer > 0) {
+          const imgKey = attackEffectSide === "left" ? "banLeft" : "banRight";
+          const img = images[imgKey];
+          const props = attackEffectProperties[imgKey];
+          ctx.drawImage(img, props.x, props.y, props.width, props.height);
+          attackEffectTimer--;
+          if (attackEffectTimer <= 0) showAttackEffect = false;
+        }
+      }
+
+      function checkCollision() {
+        const topBranch = tree[0].branch;
+        if (
+          (topBranch === "left" && playerSide === "left") ||
+          (topBranch === "right" && playerSide === "right")
+        ) {
+          gameOver = true;
+        }
+      }
+
+      function chop() {
+        if (gameOver || isAnimating || !gameStarted) return;
+        sounds.attack.currentTime = 0;
+        sounds.attack.play();
+        isAnimating = true;
+        score++;
+
+        tree.shift();
+
+        for (let i = 0; i < tree.length; i++) {
+          tree[i].yOffset -= 80;
+        }
+
+        const newBranch = { branch: generateBranch(), yOffset: 400 };
+        tree.push(newBranch);
+
+        showAttackEffect = true;
+        attackEffectSide = playerSide;
+        attackEffectTimer = 3;
+
+        isAnimating = false;
+        checkCollision();
+      }
+
+      function startGame() {
+        initTree();
+        startTime = Date.now();
+
+        setInterval(() => {
+          if (!gameOver && gameStarted) {
+            timer--;
+            if (timer <= 0) gameOver = true;
+          }
+        }, 1000);
+
+        window.addEventListener("keydown", (e) => {
+          if (gameOver) return;
+
+          // 最初のキー操作でBGM再生
+          if (!gameStarted) {
+            gameStarted = true;
+            sounds.bgm.loop = true;
+            sounds.bgm.volume = 0.5;
+            sounds.bgm
+              .play()
+              .catch((err) => console.log("BGM再生に失敗:", err));
+          }
+
+          if (e.key === "ArrowLeft") {
+            playerSide = "left";
+            checkCollision();
+          } else if (e.key === "ArrowRight") {
+            playerSide = "right";
+            checkCollision();
+          } else if (
+            e.key === " " ||
+            e.code === "Space" ||
+            e.key === "Home" ||
+            e.key === "Unidentified"
+          ) {
+            chop();
+          }
+        });
+
+        retryButton.addEventListener("click", () => {
+          // ゲーム状態リセット
+          score = 0;
+          timer = 30;
+          gameOver = false;
+          gameStarted = false;
+          pandaVisible = true;
+          playerSide = "left";
+          showAttackEffect = false;
+          attackEffectTimer = 0;
+          retryButton.style.display = "none";
+          startTime = Date.now();
+          initTree();
+        });
+
+        gameLoop();
+      }
+
+      function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawTree();
+        drawPlayer();
+        drawAttackEffect();
+
+        ctx.fillStyle = "#000";
+        ctx.font = "20px sans-serif";
+        ctx.fillText(`Score: ${score}`, 10, 30);
+        ctx.fillText(`Time: ${timer}`, 300, 30);
+
+        if (gameOver) {
+          ctx.fillStyle = "red";
+          ctx.font = "36px sans-serif";
+          ctx.fillText(timer <= 0 ? "    Finish!!" : "Game Over", 100, 300);
+          retryButton.style.display = "block";
+        }
+
+        requestAnimationFrame(gameLoop);
+      }
+    </script>
+  </body>
+</html>
