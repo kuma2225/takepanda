@@ -6,43 +6,40 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <title>takepanda</title>
+    <title>Takepanda</title>
     <style>
       html,
       body {
         margin: 0;
         padding: 0;
+        background: #fff;
         overflow: hidden;
-        touch-action: manipulation;
-        -webkit-user-select: none;
-        user-select: none;
+        touch-action: manipulation; /* モバイル用：拡大防止 */
       }
 
-      #container {
+      #gameContainer {
         position: relative;
         width: 100vw;
         height: 100vh;
-        background: #fff;
         display: flex;
         justify-content: center;
         align-items: center;
+        background-color: #ffffff;
       }
 
       canvas {
         background: rgb(170, 255, 170);
         border: 2px solid #333;
-        width: 90vw;
-        max-width: 400px;
-        height: auto;
-        touch-action: none;
+        width: 360px;
+        height: 540px;
       }
 
       #retryButton {
-        display: none;
         position: absolute;
+        display: none;
         top: 65%;
         left: 50%;
-        transform: translate(-50%, -50%);
+        transform: translateX(-50%);
         padding: 10px 20px;
         font-size: 18px;
         background-color: #4caf50;
@@ -50,40 +47,43 @@
         border: none;
         border-radius: 8px;
         cursor: pointer;
-        z-index: 3;
+        z-index: 10;
       }
 
-      #leftZone,
-      #rightZone {
+      .touchArea {
         position: absolute;
         top: 0;
+        bottom: 0;
         width: 50%;
-        height: 100%;
-        z-index: 2;
+        z-index: 5;
       }
 
-      #leftZone {
+      #leftArea {
         left: 0;
       }
-      #rightZone {
+
+      #rightArea {
         right: 0;
       }
     </style>
   </head>
   <body>
-    <div id="container">
+    <div id="gameContainer">
       <canvas id="gameCanvas" width="400" height="600"></canvas>
       <button id="retryButton">リトライ</button>
-      <div id="leftZone"></div>
-      <div id="rightZone"></div>
+      <div id="leftArea" class="touchArea"></div>
+      <div id="rightArea" class="touchArea"></div>
     </div>
 
     <script>
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
       const retryButton = document.getElementById("retryButton");
-      const leftZone = document.getElementById("leftZone");
-      const rightZone = document.getElementById("rightZone");
+
+      const sounds = {
+        bgm: new Audio("sounds/take.mp3"),
+        attack: new Audio("sounds/attack.mp3"),
+      };
 
       const images = {};
       const imageSources = {
@@ -110,23 +110,24 @@
         banRight: { width: 33, height: 33, x: 180, y: 510 },
       };
 
-      const tree = [];
-      let score = 0,
-        timer = 30,
-        gameOver = false,
-        isAnimating = false;
-      let gameStarted = false;
+      let score = 0;
+      let gameOver = false;
+      let isAnimating = false;
       let playerSide = "left";
-      let lastBranch = "none";
-      let pandaVisible = true;
-      let showAttackEffect = false,
-        attackEffectSide = "left",
-        attackEffectTimer = 0;
+      let timer = 30;
+      let gameStarted = false;
       let startTime = null;
+      let pandaVisible = true;
+      let tree = [];
+      let lastBranch = "none";
 
-      // 読み込み管理
+      let showAttackEffect = false;
+      let attackEffectSide = "left";
+      let attackEffectTimer = 0;
+
       let loaded = 0;
       const totalImages = Object.keys(imageSources).length;
+
       for (let key in imageSources) {
         images[key] = new Image();
         images[key].src = imageSources[key];
@@ -136,45 +137,14 @@
         };
       }
 
-      // タッチによるズーム防止
-      let lastTouchTime = 0;
-      document.addEventListener(
-        "touchstart",
-        function (e) {
-          const now = new Date().getTime();
-          if (now - lastTouchTime <= 300) {
-            e.preventDefault(); // ダブルタップ時拡大を防ぐ
-          }
-          lastTouchTime = now;
-        },
-        { passive: false }
-      );
-
-      // ダブルタップズーム防止 (特定要素に touchend を使っても良い)
-      leftZone.addEventListener(
-        "touchend",
-        (e) => {
-          e.preventDefault();
-        },
-        { passive: false }
-      );
-
-      rightZone.addEventListener(
-        "touchend",
-        (e) => {
-          e.preventDefault();
-        },
-        { passive: false }
-      );
-
       function generateBranch() {
         const elapsed = (Date.now() - startTime) / 1000;
-        const prob = Math.min(0.2 + elapsed * 0.02, 0.7);
+        const branchProbability = Math.min(0.2 + elapsed * 0.02, 0.7);
         let branch;
         do {
           const rand = Math.random();
-          if (rand < prob / 2) branch = "left";
-          else if (rand < prob) branch = "right";
+          if (rand < branchProbability / 2) branch = "left";
+          else if (rand < branchProbability) branch = "right";
           else branch = "none";
         } while (
           (lastBranch === "left" && branch === "right") ||
@@ -185,46 +155,46 @@
       }
 
       function initTree() {
-        tree.length = 0;
+        tree = [];
         lastBranch = "none";
         for (let i = 0; i < 6; i++) {
-          tree.push({
-            branch: i === 0 ? "none" : generateBranch(),
-            yOffset: i * 80,
-          });
+          let branchType = generateBranch();
+          if (i === 0) branchType = "none";
+          tree.push({ branch: branchType, yOffset: i * 80 });
         }
       }
 
       function drawTree() {
-        tree.forEach((t, i) => {
-          const y = 500 - t.yOffset;
+        for (let i = 0; i < tree.length; i++) {
+          const y = 500 - tree[i].yOffset;
           ctx.drawImage(images.trunk, 180, y, 40, 87);
-          if (t.branch === "left")
+          if (tree[i].branch === "left") {
             ctx.drawImage(images.branchLeft, 98, y, 90, 70);
-          else if (t.branch === "right")
+          } else if (tree[i].branch === "right") {
             ctx.drawImage(images.branchRight, 212, y, 90, 70);
-        });
+          }
+        }
       }
 
       function drawPlayer() {
         if (!pandaVisible) return;
-        const key = !gameStarted
+        const imgKey = !gameStarted
           ? playerSide === "left"
             ? "pan"
             : "panda"
           : playerSide === "left"
           ? "panLeft"
           : "panRight";
-        const img = images[key];
-        const props = playerImageProperties[key];
+        const img = images[imgKey];
+        const props = playerImageProperties[imgKey];
         ctx.drawImage(img, props.x, props.y, props.width, props.height);
       }
 
       function drawAttackEffect() {
         if (showAttackEffect && attackEffectTimer > 0) {
-          const key = attackEffectSide === "left" ? "banLeft" : "banRight";
-          const img = images[key];
-          const props = attackEffectProperties[key];
+          const imgKey = attackEffectSide === "left" ? "banLeft" : "banRight";
+          const img = images[imgKey];
+          const props = attackEffectProperties[imgKey];
           ctx.drawImage(img, props.x, props.y, props.width, props.height);
           attackEffectTimer--;
           if (attackEffectTimer <= 0) showAttackEffect = false;
@@ -238,21 +208,29 @@
           (topBranch === "right" && playerSide === "right")
         ) {
           gameOver = true;
+          retryButton.style.display = "block";
         }
       }
 
       function chop() {
         if (gameOver || isAnimating || !gameStarted) return;
+
         isAnimating = true;
         score++;
 
         tree.shift();
-        tree.forEach((b) => (b.yOffset -= 80));
+        for (let i = 0; i < tree.length; i++) {
+          tree[i].yOffset -= 80;
+        }
+
         tree.push({ branch: generateBranch(), yOffset: 400 });
 
         showAttackEffect = true;
         attackEffectSide = playerSide;
         attackEffectTimer = 3;
+
+        sounds.attack.currentTime = 0;
+        sounds.attack.play();
 
         isAnimating = false;
         checkCollision();
@@ -262,13 +240,61 @@
         initTree();
         startTime = Date.now();
 
+        sounds.bgm.loop = true;
+        sounds.bgm.volume = 1;
+        sounds.bgm.play().catch(() => {}); // 自動再生対策
+
         setInterval(() => {
           if (!gameOver && gameStarted) {
             timer--;
-            if (timer <= 0) gameOver = true;
+            if (timer <= 0) {
+              gameOver = true;
+              retryButton.style.display = "block";
+            }
           }
         }, 1000);
 
+        // キーボード操作
+        window.addEventListener("keydown", (e) => {
+          if (gameOver) return;
+          if (e.key === "ArrowLeft") {
+            playerSide = "left";
+            checkCollision();
+          } else if (e.key === "ArrowRight") {
+            playerSide = "right";
+            checkCollision();
+          } else if (e.key === " " || e.key === "Enter") {
+            gameStarted = true;
+            chop();
+          }
+        });
+
+        // スマホタップ操作
+        document.getElementById("leftArea").addEventListener(
+          "touchstart",
+          (e) => {
+            e.preventDefault();
+            if (gameOver) return;
+            playerSide = "left";
+            gameStarted = true;
+            chop();
+          },
+          { passive: false }
+        );
+
+        document.getElementById("rightArea").addEventListener(
+          "touchstart",
+          (e) => {
+            e.preventDefault();
+            if (gameOver) return;
+            playerSide = "right";
+            gameStarted = true;
+            chop();
+          },
+          { passive: false }
+        );
+
+        // リトライボタン
         retryButton.addEventListener("click", () => {
           score = 0;
           timer = 30;
@@ -279,33 +305,8 @@
           showAttackEffect = false;
           attackEffectTimer = 0;
           retryButton.style.display = "none";
-          initTree();
           startTime = Date.now();
-        });
-
-        window.addEventListener("keydown", (e) => {
-          if (gameOver) return;
-          if (e.key === "ArrowLeft") playerSide = "left";
-          else if (e.key === "ArrowRight") playerSide = "right";
-          else if (e.key === " " || e.code === "Space") {
-            gameStarted = true;
-            chop();
-          }
-          checkCollision();
-        });
-
-        leftZone.addEventListener("touchstart", () => {
-          if (gameOver) return;
-          playerSide = "left";
-          gameStarted = true;
-          chop();
-        });
-
-        rightZone.addEventListener("touchstart", () => {
-          if (gameOver) return;
-          playerSide = "right";
-          gameStarted = true;
-          chop();
+          initTree();
         });
 
         gameLoop();
@@ -325,8 +326,7 @@
         if (gameOver) {
           ctx.fillStyle = "red";
           ctx.font = "36px sans-serif";
-          ctx.fillText(timer <= 0 ? "   Finish!!" : "Game Over", 100, 300);
-          retryButton.style.display = "block";
+          ctx.fillText(timer <= 0 ? "Finish!!" : "Game Over", 100, 300);
         }
 
         requestAnimationFrame(gameLoop);
