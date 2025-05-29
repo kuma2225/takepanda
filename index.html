@@ -5,22 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>takepanda</title>
     <style>
+      html,
       body {
         margin: 0;
-        background: rgb(255, 255, 255);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
+        padding: 0;
+        height: 100%;
+        background: #fff;
+        overflow: hidden;
       }
+
       canvas {
         background: rgb(170, 255, 170);
         border: 2px solid #333;
+        display: block;
+        margin: 0 auto;
       }
+
       #retryButton {
         display: none;
         position: absolute;
-        top: 60%;
+        top: 65%;
         left: 50%;
         transform: translate(-50%, -50%);
         padding: 10px 20px;
@@ -30,16 +34,36 @@
         border: none;
         border-radius: 8px;
         cursor: pointer;
+        z-index: 10;
+      }
+
+      #leftZone,
+      #rightZone {
+        position: absolute;
+        top: 0;
+        width: 50%;
+        height: 100%;
+      }
+
+      #leftZone {
+        left: 0;
+      }
+
+      #rightZone {
+        right: 0;
       }
     </style>
   </head>
   <body>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
     <button id="retryButton">リトライ</button>
+    <div id="leftZone"></div>
+    <div id="rightZone"></div>
 
     <script>
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
+      const retryButton = document.getElementById("retryButton");
 
       const sounds = {
         bgm: new Audio("sounds/take.mp3"),
@@ -86,17 +110,19 @@
       let attackEffectSide = "left";
       let attackEffectTimer = 0;
 
-      const retryButton = document.getElementById("retryButton");
+      function isMobile() {
+        return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      }
 
-      let loaded = 0;
-      const totalImages = Object.keys(imageSources).length;
-      for (let key in imageSources) {
-        images[key] = new Image();
-        images[key].src = imageSources[key];
-        images[key].onload = () => {
-          loaded++;
-          if (loaded === totalImages) startGame();
-        };
+      function enterFullscreen() {
+        const el = document.documentElement;
+        if (el.requestFullscreen) {
+          el.requestFullscreen();
+        } else if (el.webkitRequestFullscreen) {
+          el.webkitRequestFullscreen();
+        } else if (el.msRequestFullscreen) {
+          el.msRequestFullscreen();
+        }
       }
 
       function generateBranch() {
@@ -176,17 +202,14 @@
         if (gameOver || isAnimating || !gameStarted) return;
         sounds.attack.currentTime = 0;
         sounds.attack.play();
+
         isAnimating = true;
         score++;
-
         tree.shift();
-
         for (let i = 0; i < tree.length; i++) {
           tree[i].yOffset -= 80;
         }
-
-        const newBranch = { branch: generateBranch(), yOffset: 400 };
-        tree.push(newBranch);
+        tree.push({ branch: generateBranch(), yOffset: 400 });
 
         showAttackEffect = true;
         attackEffectSide = playerSide;
@@ -194,6 +217,17 @@
 
         isAnimating = false;
         checkCollision();
+      }
+
+      function startGameAction() {
+        if (!gameStarted) {
+          gameStarted = true;
+          if (isMobile()) enterFullscreen();
+          sounds.bgm.loop = true;
+          sounds.bgm.volume = 1;
+          sounds.bgm.play();
+        }
+        chop();
       }
 
       function startGame() {
@@ -210,34 +244,34 @@
         window.addEventListener("keydown", (e) => {
           if (gameOver) return;
 
-          // 最初のキー操作でBGM再生
-          if (!gameStarted) {
-            gameStarted = true;
-            sounds.bgm.loop = true;
-            sounds.bgm.volume = 0.5;
-            sounds.bgm
-              .play()
-              .catch((err) => console.log("BGM再生に失敗:", err));
-          }
-
           if (e.key === "ArrowLeft") {
             playerSide = "left";
             checkCollision();
           } else if (e.key === "ArrowRight") {
             playerSide = "right";
             checkCollision();
-          } else if (
-            e.key === " " ||
-            e.code === "Space" ||
-            e.key === "Home" ||
-            e.key === "Unidentified"
-          ) {
-            chop();
+          } else if (e.key === " " || e.code === "Space") {
+            startGameAction();
           }
         });
 
+        document
+          .getElementById("leftZone")
+          .addEventListener("touchstart", () => {
+            if (gameOver) return;
+            playerSide = "left";
+            startGameAction();
+          });
+
+        document
+          .getElementById("rightZone")
+          .addEventListener("touchstart", () => {
+            if (gameOver) return;
+            playerSide = "right";
+            startGameAction();
+          });
+
         retryButton.addEventListener("click", () => {
-          // ゲーム状態リセット
           score = 0;
           timer = 30;
           gameOver = false;
@@ -256,7 +290,6 @@
 
       function gameLoop() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-
         drawTree();
         drawPlayer();
         drawAttackEffect();
@@ -269,11 +302,23 @@
         if (gameOver) {
           ctx.fillStyle = "red";
           ctx.font = "36px sans-serif";
-          ctx.fillText(timer <= 0 ? "    Finish!!" : "Game Over", 100, 300);
+          ctx.fillText(timer <= 0 ? "Finish!!" : "Game Over", 100, 300);
           retryButton.style.display = "block";
         }
 
         requestAnimationFrame(gameLoop);
+      }
+
+      // 画像の読み込み後スタート
+      let loaded = 0;
+      const totalImages = Object.keys(imageSources).length;
+      for (let key in imageSources) {
+        images[key] = new Image();
+        images[key].src = imageSources[key];
+        images[key].onload = () => {
+          loaded++;
+          if (loaded === totalImages) startGame();
+        };
       }
     </script>
   </body>
