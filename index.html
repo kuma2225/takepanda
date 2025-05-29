@@ -2,23 +2,39 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>takepanda</title>
     <style>
       html,
       body {
         margin: 0;
         padding: 0;
-        height: 100%;
-        background: #fff;
         overflow: hidden;
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      #container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        background: #fff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
       }
 
       canvas {
         background: rgb(170, 255, 170);
         border: 2px solid #333;
-        display: block;
-        margin: 0 auto;
+        width: 90vw;
+        max-width: 400px;
+        height: auto;
+        touch-action: none;
       }
 
       #retryButton {
@@ -34,7 +50,6 @@
         border: none;
         border-radius: 8px;
         cursor: pointer;
-        z-index: 10;
       }
 
       #leftZone,
@@ -43,6 +58,7 @@
         top: 0;
         width: 50%;
         height: 100%;
+        z-index: 2;
       }
 
       #leftZone {
@@ -55,15 +71,20 @@
     </style>
   </head>
   <body>
-    <canvas id="gameCanvas" width="400" height="600"></canvas>
-    <button id="retryButton">リトライ</button>
-    <div id="leftZone"></div>
-    <div id="rightZone"></div>
+    <div id="container">
+      <canvas id="gameCanvas" width="400" height="600"></canvas>
+      <button id="retryButton">リトライ</button>
+      <div id="leftZone"></div>
+      <div id="rightZone"></div>
+    </div>
 
     <script>
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
+
       const retryButton = document.getElementById("retryButton");
+      const leftZone = document.getElementById("leftZone");
+      const rightZone = document.getElementById("rightZone");
 
       const sounds = {
         bgm: new Audio("sounds/take.mp3"),
@@ -110,19 +131,15 @@
       let attackEffectSide = "left";
       let attackEffectTimer = 0;
 
-      function isMobile() {
-        return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      }
-
-      function enterFullscreen() {
-        const el = document.documentElement;
-        if (el.requestFullscreen) {
-          el.requestFullscreen();
-        } else if (el.webkitRequestFullscreen) {
-          el.webkitRequestFullscreen();
-        } else if (el.msRequestFullscreen) {
-          el.msRequestFullscreen();
-        }
+      let loaded = 0;
+      const totalImages = Object.keys(imageSources).length;
+      for (let key in imageSources) {
+        images[key] = new Image();
+        images[key].src = imageSources[key];
+        images[key].onload = () => {
+          loaded++;
+          if (loaded === totalImages) startGame();
+        };
       }
 
       function generateBranch() {
@@ -200,15 +217,15 @@
 
       function chop() {
         if (gameOver || isAnimating || !gameStarted) return;
+
         sounds.attack.currentTime = 0;
         sounds.attack.play();
 
         isAnimating = true;
         score++;
+
         tree.shift();
-        for (let i = 0; i < tree.length; i++) {
-          tree[i].yOffset -= 80;
-        }
+        tree.forEach((b) => (b.yOffset -= 80));
         tree.push({ branch: generateBranch(), yOffset: 400 });
 
         showAttackEffect = true;
@@ -219,20 +236,18 @@
         checkCollision();
       }
 
-      function startGameAction() {
-        if (!gameStarted) {
-          gameStarted = true;
-          if (isMobile()) enterFullscreen();
-          sounds.bgm.loop = true;
-          sounds.bgm.volume = 1;
-          sounds.bgm.play();
-        }
-        chop();
-      }
-
       function startGame() {
         initTree();
         startTime = Date.now();
+
+        sounds.bgm.loop = true;
+        sounds.bgm.volume = 1;
+        sounds.bgm.play().catch(() => {
+          // 自動再生対策
+          document.addEventListener("click", () => sounds.bgm.play(), {
+            once: true,
+          });
+        });
 
         setInterval(() => {
           if (!gameOver && gameStarted) {
@@ -240,36 +255,6 @@
             if (timer <= 0) gameOver = true;
           }
         }, 1000);
-
-        window.addEventListener("keydown", (e) => {
-          if (gameOver) return;
-
-          if (e.key === "ArrowLeft") {
-            playerSide = "left";
-            checkCollision();
-          } else if (e.key === "ArrowRight") {
-            playerSide = "right";
-            checkCollision();
-          } else if (e.key === " " || e.code === "Space") {
-            startGameAction();
-          }
-        });
-
-        document
-          .getElementById("leftZone")
-          .addEventListener("touchstart", () => {
-            if (gameOver) return;
-            playerSide = "left";
-            startGameAction();
-          });
-
-        document
-          .getElementById("rightZone")
-          .addEventListener("touchstart", () => {
-            if (gameOver) return;
-            playerSide = "right";
-            startGameAction();
-          });
 
         retryButton.addEventListener("click", () => {
           score = 0;
@@ -285,11 +270,40 @@
           initTree();
         });
 
+        window.addEventListener("keydown", (e) => {
+          if (gameOver) return;
+          if (e.key === "ArrowLeft") {
+            playerSide = "left";
+            checkCollision();
+          } else if (e.key === "ArrowRight") {
+            playerSide = "right";
+            checkCollision();
+          } else if (e.key === " " || e.code === "Space") {
+            gameStarted = true;
+            chop();
+          }
+        });
+
+        leftZone.addEventListener("touchstart", () => {
+          if (gameOver) return;
+          playerSide = "left";
+          gameStarted = true;
+          chop();
+        });
+
+        rightZone.addEventListener("touchstart", () => {
+          if (gameOver) return;
+          playerSide = "right";
+          gameStarted = true;
+          chop();
+        });
+
         gameLoop();
       }
 
       function gameLoop() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
         drawTree();
         drawPlayer();
         drawAttackEffect();
@@ -302,23 +316,11 @@
         if (gameOver) {
           ctx.fillStyle = "red";
           ctx.font = "36px sans-serif";
-          ctx.fillText(timer <= 0 ? "Finish!!" : "Game Over", 100, 300);
+          ctx.fillText(timer <= 0 ? "   Finish!!" : "Game Over", 100, 300);
           retryButton.style.display = "block";
         }
 
         requestAnimationFrame(gameLoop);
-      }
-
-      // 画像の読み込み後スタート
-      let loaded = 0;
-      const totalImages = Object.keys(imageSources).length;
-      for (let key in imageSources) {
-        images[key] = new Image();
-        images[key].src = imageSources[key];
-        images[key].onload = () => {
-          loaded++;
-          if (loaded === totalImages) startGame();
-        };
       }
     </script>
   </body>
